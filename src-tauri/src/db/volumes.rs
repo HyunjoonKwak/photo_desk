@@ -199,6 +199,10 @@ pub fn to_relative(mount: &Path, full: &Path) -> Option<PathBuf> {
 mod tests {
     use super::*;
 
+    fn is_candidate_volume(name: &str) -> bool {
+        !name.starts_with('.') && !name.starts_with("com.apple.")
+    }
+
     /// 임시 폴더의 볼륨을 UUID로 되찾을 수 있어야 한다.
     ///
     /// 사용자 폴더는 Data 볼륨에 있는데 "/"는 System 볼륨이라 UUID가 다르다.
@@ -292,23 +296,44 @@ mod tests {
     }
 
     /// 실제 외장 볼륨이 붙어 있을 때만 도는 테스트.
-    /// 마운트 경로가 밀린 볼륨(`PHOTO 1`)에서도 UUID가 안정적인지 본다.
+    /// 숨김 항목, `com.apple.` 항목, 심볼릭 링크, UUID 없는 마운트는 건너뛰고 UUID가 안정적인지 본다.
     #[test]
     fn external_volume_uuid_is_stable() {
-        let Some(entry) = std::fs::read_dir("/Volumes")
-            .ok()
-            .and_then(|d| d.flatten().find(|e| e.path().is_dir()))
-        else {
-            return; // 외장 볼륨 없음 — 건너뛴다
+        let Some(entries) = std::fs::read_dir("/Volumes").ok() else {
+            return;
         };
-        let p = entry.path();
-        let Ok(uuid) = volume_uuid(&p) else { return }; // 네트워크 마운트 등
-        let again = find_mount(&uuid).expect("UUID로 되찾을 수 있어야 한다");
-        assert_eq!(
-            volume_uuid(&again).unwrap(),
-            uuid,
-            "같은 볼륨을 가리켜야 한다"
-        );
+
+        for entry in entries.flatten() {
+            let p = entry.path();
+            let Some(name) = p.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if !is_candidate_volume(name) {
+                continue;
+            }
+            let Ok(metadata) = std::fs::symlink_metadata(&p) else {
+                continue;
+            };
+            if metadata.is_symlink() {
+                continue;
+            }
+            let Ok(uuid) = volume_uuid(&p) else {
+                continue; // 네트워크 마운트 등
+            };
+            let again = find_mount(&uuid).expect("UUID로 되찾을 수 있어야 한다");
+            assert_eq!(
+                volume_uuid(&again).unwrap(),
+                uuid,
+                "같은 볼륨을 가리켜야 한다"
+            );
+        }
+    }
+
+    #[test]
+    fn candidate_volume_name_excludes_hidden_and_apple_entries() {
+        assert!(is_candidate_volume("PHOTO 1"));
+        assert!(!is_candidate_volume(".hidden"));
+        assert!(!is_candidate_volume("com.apple.TimeMachine.localsnapshots"));
     }
 
     #[test]
