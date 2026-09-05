@@ -1,6 +1,6 @@
 [package]
 name = "acut"
-version = "0.9.2"
+version = "0.9.3"
 description = "Photo Desk - 사진을 가져와 고르고 정리해 NAS 로 올리는 작업대"
 authors = ["Photo Desk"]
 license = "MIT"
